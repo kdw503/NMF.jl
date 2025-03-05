@@ -24,12 +24,15 @@ struct Result{T}
     niters::Int
     converged::Bool
     objvalue::T
+    objvalues::Vector{T}
+    sparsevalues::Vector{T}
+    avgfits::Vector{T}
 
-    function Result{T}(W::Matrix{T}, H::Matrix{T}, niters::Int, converged::Bool, objv) where T
+    function Result{T}(W::Matrix{T}, H::Matrix{T}, niters::Int, converged::Bool, objv, objvs, sparsevalues,avgfits) where T
         if size(W, 2) != size(H, 1)
             throw(DimensionMismatch("Inner dimensions of W and H mismatch."))
         end
-        new{T}(W, H, niters, converged, objv)
+        new{T}(W, H, niters, converged, objv, objvs, sparsevalues,avgfits)
     end
 end
 
@@ -41,21 +44,34 @@ Base.hash(s::Result, h::UInt) = hash(s.objvalue, hash(s.converged, hash(s.niters
 # common algorithmic skeleton for iterative updating methods
 
 abstract type NMFUpdater{T} end
+evaluate_sparseness(updater::NMFUpdater{T}, state, X, W, H) where T = zero(T)
 
 function nmf_skeleton!(updater::NMFUpdater{T},
                        X, W::Matrix{T}, H::Matrix{T},
-                       maxiter::Int, verbose::Bool, tol) where T
+                       maxiter::Int, verbose::Bool, tol;
+                       U::Matrix{T}=Matrix{T}(undef,0,0),
+                       Vt::Matrix{T}=Matrix{T}(undef,0,0),
+                       d::Vector{T}=Vector{T}(undef,0),
+                       gtW::Matrix{T}=Matrix{T}(undef,0,0),
+                       gtH::Matrix{T}=Matrix{T}(undef,0,0),
+                       maskW::Union{Colon,Vector,BitVector}=Colon(),
+                       maskH::Union{Colon,Vector,BitVector}=Colon()
+                       ) where T
     objv = convert(T, NaN)
 
     # init
-    state = prepare_state(updater, X, W, H)
+    state = prepare_state(updater, X, W, H, U=U, Vt=Vt, d=d, gtW=gtW[maskW,:], gtH=gtH[maskH,:])
     preW = Matrix{T}(undef, size(W))
     preH = Matrix{T}(undef, size(H))
+    objvs = T[]; objvsparses = T[]; avgfits=T[]
     if verbose
         start = time()
         objv = evaluate_objv(updater, state, X, W, H)
-        @printf("%-5s    %-13s    %-13s    %-13s    %-13s\n", "Iter", "Elapsed time", "objv", "objv.change", "(W & H).relchange")
-        @printf("%5d    %13.6e    %13.6e\n", 0, 0.0, objv)
+        push!(objvs,objv)
+        push!(objvsparses,evaluate_sparseness(updater, state, X, W, H))
+        push!(avgfits,evaluate_fitvalue(updater, state, X[maskW,maskH], W[maskW,:], H[:,maskH]))
+        # @printf("%-5s    %-13s    %-13s    %-13s    %-13s\n", "Iter", "Elapsed time", "objv", "objv.change", "(W & H).change")
+        # @printf("%5d    %13.6e    %13.6e\n", 0, 0.0, objv)
     end
 
     # main loop
@@ -77,15 +93,18 @@ function nmf_skeleton!(updater::NMFUpdater{T},
             elapsed = time() - start
             preobjv = objv
             objv = evaluate_objv(updater, state, X, W, H)
-            @printf("%5d    %13.6e    %13.6e    %13.6e    %13.6e\n",
-                t, elapsed, objv, objv - preobjv, dev)
+            push!(objvs,objv)
+            push!(objvsparses,evaluate_sparseness(updater, state, X, W, H))
+            push!(avgfits,evaluate_fitvalue(updater, state, X[maskW,maskH], W[maskW,:], H[:,maskH]))
+            #@printf("%5d    %13.6e    %13.6e    %13.6e    %13.6e\n",
+            #    t, elapsed, objv, objv - preobjv, dev)
         end
     end
 
     if !verbose
         objv = evaluate_objv(updater, state, X, W, H)
     end
-    return Result{T}(W, H, t, converged, objv)
+    return Result{T}(W, H, t, converged, objv, objvs, objvsparses, avgfits)
 end
 
 

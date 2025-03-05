@@ -32,6 +32,9 @@ mutable struct CoordinateDescent{T}
                            # (:components, :transformation, :both, :none)
     regularization::Symbol # l1 / l2 regularization mixing parameter (in [0; 1])
     shuffle::Bool          # # if true, randomize the order of coordinates in the CD solver
+    PCB_penmetric::Symbol  # PCB add. :HALS, :PCB
+    PCB_αw::T
+    PCB_αh::T
 
     function CoordinateDescent{T}(;maxiter::Integer=100,
                               verbose::Bool=false,
@@ -40,16 +43,22 @@ mutable struct CoordinateDescent{T}
                               α::Real=zero(T),
                               regularization=:both,
                               l₁ratio::Real=zero(T),
-                              shuffle::Bool=false) where T
-        new{T}(maxiter, verbose, tol, update_H, α, l₁ratio, regularization, shuffle)
+                              shuffle::Bool=false,
+                              PCB_penmetric::Symbol=:HALS,
+                              PCB_αw::Real=100,
+                              PCB_αh::Real=100) where T
+        new{T}(maxiter, verbose, tol, update_H, α, l₁ratio, regularization, shuffle, PCB_penmetric,
+                    PCB_αw, PCB_αh)
     end
 end
 
 
-solve!(alg::CoordinateDescent{T}, X, W, H) where {T} =
-    nmf_skeleton!(CoordinateDescentUpd{T}(alg.α, alg.l₁ratio, alg.regularization, alg.shuffle, alg.update_H),
-                  X, W, H, alg.maxiter, alg.verbose, alg.tol)
-
+solve!(alg::CoordinateDescent{T}, X, W, H; U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0),
+        d::Vector{T}=Vector{T}(undef,0), gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0),
+        maskW::Union{Colon,Vector,BitVector}=Colon(),maskH::Union{Colon,Vector,BitVector}=Colon()) where {T} =
+    nmf_skeleton!(CoordinateDescentUpd{T}(alg.α, alg.l₁ratio, alg.regularization, alg.shuffle, alg.update_H,
+            alg.PCB_penmetric, alg.PCB_αw, alg.PCB_αh), X, W, H, alg.maxiter, alg.verbose, alg.tol;
+            U=U, Vt=Vt, d=d, gtW=gtW, gtH=gtH, maskW=maskW, maskH=maskH)
 
 struct CoordinateDescentUpd{T} <: NMFUpdater{T}
     l₁W::T
@@ -58,7 +67,11 @@ struct CoordinateDescentUpd{T} <: NMFUpdater{T}
     l₂H::T
     shuffle::Bool
     update_H::Bool
-    function CoordinateDescentUpd{T}(α::T, l₁ratio::T, regularization::Symbol, shuffle::Bool, update_H::Bool) where {T}
+    PCB_penmetric::Symbol
+    PCB_αw::T
+    PCB_αh::T
+    function CoordinateDescentUpd{T}(α::T, l₁ratio::T, regularization::Symbol, shuffle::Bool, update_H::Bool,
+                PCB_penmetric::Symbol,PCB_αw::T, PCB_αh::T) where {T}
         αW = zero(T)
         αH = zero(T)
 
@@ -75,34 +88,82 @@ struct CoordinateDescentUpd{T} <: NMFUpdater{T}
                αH*l₁ratio,
                αH*(1-l₁ratio),
                shuffle,
-               update_H)
+               update_H,
+               PCB_penmetric,
+               PCB_αw,
+               PCB_αh)
     end
 end
 
 mutable struct CoordinateDescentState{T}
-    WH::Matrix{T}
     HHt::Matrix{T}
     XHt::Matrix{T}
     XtW::Matrix{T}
     violation::T
     violation_init::Union{Nothing, T}
-    
-    function CoordinateDescentState{T}(X, W, H, violation, violation_init) where T
+    U::Matrix{T}
+    Vt::Matrix{T}
+    d::Vector{T}
+    gtW::Matrix{T}
+    gtH::Matrix{T}
+    normW::T
+    normH::T
+
+    function CoordinateDescentState{T}(X, W, H, U, Vt, d, gtW, gtH, violation, violation_init) where T
         p, n, k = nmf_checksize(X, W, H)
-        new{T}(W * H, 
-               Matrix{T}(undef, k, k),
+        new{T}(Matrix{T}(undef, k, k),
                Matrix{T}(undef, p, k),
                Matrix{T}(undef, n, k),
-               violation, 
-               violation_init)
+               violation,
+               violation_init,
+               U,
+               Vt,
+               d,
+               gtW,
+               gtH,
+               norm(W,1),
+               norm(H,1)
+               )
     end
 end
 
-prepare_state(::CoordinateDescentUpd{T}, X, W, H) where T = CoordinateDescentState{T}(X, W, H, zero(T), nothing)
+prepare_state(::CoordinateDescentUpd{T}, X, W, H;
+        U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0), d::Vector{T}=Vector{T}(undef,0),
+        gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0)
+        ) where T = CoordinateDescentState{T}(X, W, H, U, Vt, d, gtW, gtH, zero(T), nothing)
 
-function evaluate_objv(::CoordinateDescentUpd{T}, s::CoordinateDescentState{T}, X, W, H) where T
-    mul!(s.WH, W, H)
-    convert(T, 0.5) * sqL2dist(X, s.WH)
+function evaluate_objv(updater::CoordinateDescentUpd{T}, s::CoordinateDescentState{T}, X, W, H) where T
+    # convert(T, 0.5) * sqL2dist(X, s.WH)
+    if updater.PCB_penmetric ∈ [:HALS, :SPARSE_W, :SPARSE_H]
+        sqL2dist(X, W*H)
+    elseif updater.PCB_penmetric == :PCB
+        M = s.U\W; N = H/s.Vt
+        sqL2dist(Diagonal(s.d), M*N)
+    end
+end
+function evaluate_sparseness(updater::CoordinateDescentUpd{T}, s::CoordinateDescentState{T}, X, W, H) where T
+    if updater.PCB_penmetric == :HALS
+        updater.l₁W*norm(W,1) + updater.l₂W*norm(W)^2 + updater.l₁H*norm(H,1) + updater.l₂H*norm(H)^2
+    elseif updater.PCB_penmetric == :PCB
+        M = s.U\W; N = H/s.Vt
+        normwp = norm(s.U,1); normhp = norm(s.Vt,1); (αw, αh) = (updater.PCB_αw/normwp, updater.PCB_αh/normhp)
+        αw*norm(s.U*M,1) + αh*norm(N*s.Vt,1)
+    elseif updater.PCB_penmetric == :SPARSE_W
+        Wn, Hn = copy(W), copy(H); normalizeW!(Wn,Hn)
+        norm(Wn,1)#/s.normW
+    elseif updater.PCB_penmetric == :SPARSE_H
+        norm(H,1)#/s.normH
+    else
+        zero(T)
+    end
+end
+function evaluate_fitvalue(updater::CoordinateDescentUpd{T}, s::CoordinateDescentState{T}, X, W, H) where T
+    if !isempty(s.gtW) && !isempty(s.gtH)
+        avgfit, _ =  matchedfitval(s.gtW, s.gtH, W, H; clamp=false)
+    else
+        avgfit = fitd(X,W*H)
+    end
+    avgfit
 end
 
 "Updates W only"

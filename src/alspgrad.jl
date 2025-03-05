@@ -394,7 +394,10 @@ struct ALSPGradUpd_State{T}
                ALSGradUpdW_State{T}(X, W, H))
 end
 
-prepare_state(::ALSPGradUpd{T}, X, W, H) where {T} = ALSPGradUpd_State{T}(X, W, H)
+prepare_state(::ALSPGradUpd{T}, X, W, H;
+        U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0), d::Vector{T}=Vector{T}(undef,0),
+        gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0)
+        ) where {T} = ALSPGradUpd_State{T}(X, W, H)
 evaluate_objv(u::ALSPGradUpd{T}, s::ALSPGradUpd_State{T}, X, W, H) where T = convert(T, 0.5) * sqL2dist(X, s.WH)
 
 function update_wh!(upd::ALSPGradUpd, s::ALSPGradUpd_State, X, W, H)

@@ -77,7 +77,10 @@ struct GreedyCDUpd_State{T}
     end
 end
 
-prepare_state(::GreedyCDUpd{T}, X, W, H) where T = GreedyCDUpd_State{T}(X, W, H)
+prepare_state(::GreedyCDUpd{T}, X, W, H;
+        U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0), d::Vector{T}=Vector{T}(undef,0),
+        gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0)
+        ) where T = GreedyCDUpd_State{T}(X, W, H)
 
 function evaluate_objv(u::GreedyCDUpd{T}, s::GreedyCDUpd_State{T}, X, W, H) where T
     mul!(s.WH, W, H)

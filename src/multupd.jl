@@ -77,7 +77,10 @@ struct MultUpdMSE_State{T}
     end
 end
 
-prepare_state(::MultUpdMSE{T}, X, W, H) where {T} = MultUpdMSE_State{T}(X, W, H)
+prepare_state(::MultUpdMSE{T}, X, W, H;
+        U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0), d::Vector{T}=Vector{T}(undef,0),
+        gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0)
+        ) where {T} = MultUpdMSE_State{T}(X, W, H)
 evaluate_objv(::MultUpdMSE{T}, s::MultUpdMSE_State{T}, X, W, H) where T = convert(T, 0.5) * sqL2dist(X, s.WH)
 
 function update_wh!(upd::MultUpdMSE{T}, s::MultUpdMSE_State{T}, X, W::Matrix{T}, H::Matrix{T}) where T
@@ -144,7 +147,10 @@ struct MultUpdDiv_State{T}
     end
 end
 
-prepare_state(::MultUpdDiv{T}, X, W, H) where T = MultUpdDiv_State{T}(X, W, H)
+prepare_state(::MultUpdDiv{T}, X, W, H;
+        U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0), d::Vector{T}=Vector{T}(undef,0),
+        gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0)
+        ) where T = MultUpdDiv_State{T}(X, W, H)
 evaluate_objv(::MultUpdDiv, s::MultUpdDiv_State, X, W, H) = gkldiv(X, s.WH)
 
 function update_wh!(upd::MultUpdDiv{T}, s::MultUpdDiv_State{T}, X, W::Matrix{T}, H::Matrix{T}) where T

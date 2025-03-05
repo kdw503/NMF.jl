@@ -60,7 +60,10 @@ struct ProjectedALSUpd_State{T}
     end
 end
 
-prepare_state(::ProjectedALSUpd{T}, X, W, H) where {T} = ProjectedALSUpd_State{T}(X, W, H)
+prepare_state(::ProjectedALSUpd{T}, X, W, H;
+        U::Matrix{T}=Matrix{T}(undef,0,0), Vt::Matrix{T}=Matrix{T}(undef,0,0), d::Vector{T}=Vector{T}(undef,0),
+        gtW::Matrix{T}=Matrix{T}(undef,0,0), gtH::Matrix{T}=Matrix{T}(undef,0,0)
+        ) where {T} = ProjectedALSUpd_State{T}(X, W, H)
 
 function evaluate_objv(u::ProjectedALSUpd{T}, s::ProjectedALSUpd_State{T}, X, W, H) where T
     r = convert(T, 0.5) * sqL2dist(X, s.WH)
